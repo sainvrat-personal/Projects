@@ -1,0 +1,100 @@
+services:
+  app:
+    build: .
+    container_name: order-returns-app
+    ports:
+      - "8080:8080"
+    environment:
+      # Application settings
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8080
+      
+      # Database configuration
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/orders_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      
+      # JPA settings
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: 'false'
+      
+      # Email configuration
+      SPRING_MAIL_HOST: smtp.gmail.com
+      SPRING_MAIL_PORT: 587
+      SPRING_MAIL_USERNAME: ${EMAIL_USERNAME:-sainvrat@gmail.com}
+      SPRING_MAIL_PASSWORD: ${EMAIL_PASSWORD:-qjtxzvcsclhioigp}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: 'true'
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: 'true'
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT: 5000
+      EMAIL_SENDING_ENABLED: ${EMAIL_ENABLED:-true}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT: 5000
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT: 5000
+      
+      # Async executor configuration
+      SPRING_TASK_EXECUTION_POOL_CORE_SIZE: 5
+      SPRING_TASK_EXECUTION_POOL_MAX_SIZE: 10
+      SPRING_TASK_EXECUTION_POOL_QUEUE_CAPACITY: 25
+      SPRING_TASK_EXECUTION_THREAD_NAME_PREFIX: AsyncTask-
+      
+      # Job scheduler configuration
+      SCHEDULER_ENABLED: 'true'
+      SCHEDULER_PROCESS_JOBS_RATE: 30000
+      SCHEDULER_PROCESS_RETRY_JOBS_RATE: 60000
+      
+      # External service URLs
+      MOCK_PAYMENT_URL: http://localhost:8080/mock-payment/refund
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - order-returns-network
+    
+  db:
+    image: postgres:15-alpine
+    container_name: order-returns-db
+    environment:
+      POSTGRES_DB: orders_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/migration:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orders_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - order-returns-network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: order-returns-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    restart: unless-stopped
+    networks:
+      - order-returns-network
+
+networks:
+  order-returns-network:
+    driver: bridge
+
+volumes:
+  db_data:
+    driver: local
