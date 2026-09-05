@@ -1,0 +1,46 @@
+/* Header styles */
+.header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 2rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  min-height: 64px;
+  box-sizing: border-box;
+}
+
+.header__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header__logo {
+  height: 36px;
+  width: 36px;
+  margin-right: 8px;
+}
+
+.header__title {
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--color-primary);
+  font-family: 'Inter', 'Poppins', 'Montserrat', 'Roboto', 'Nunito', sans-serif;
+  letter-spacing: -0.5px;
+}
+
+.header__actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logout-btn {
+  font-family: inherit;
+}

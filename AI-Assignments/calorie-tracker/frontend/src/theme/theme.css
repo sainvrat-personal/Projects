@@ -1,0 +1,53 @@
+
+
+/* Add a shadow and border for modals for better contrast */
+:root {
+  --color-primary: #1B5E20; /* accessible dark green */
+  --color-secondary: #BF360C; /* accessible dark orange */
+  --color-accent: #0D47A1; /* accessible dark blue */
+  --color-background: #FAFAFA; /* very light gray */
+  --color-surface: #fff; /* card/modal backgrounds */
+  --color-text: #212121; /* dark gray */
+  --color-legend: #1B5E20;
+  --color-contrast: #fff; /* for buttons on primary */
+  --color-border: #e0e0e0; /* light gray */
+  --color-success: #2E7D32; /* accessible green for buttons */
+  --color-warning: #E65100; /* accessible orange for buttons */
+  --color-danger: #B71C1C; /* accessible red for danger */
+
+body[data-theme='dark'] {
+  --color-primary: #66BB6A; /* softer green */
+  --color-secondary: #FFB74D; /* muted orange */
+  --color-accent: #64B5F6; /* light blue */
+  --color-background: #121212; /* dark gray */
+  --color-surface: #1E1E1E; /* elevated dark gray */
+  --color-text: #E0E0E0; /* light gray */
+  --color-legend: #66BB6A;
+  --color-contrast: #121212; /* for buttons on primary */
+  --color-border: #333; /* dark border */
+  --color-success: #4CAF50; /* bright green */
+  --color-warning: #FFCC02; /* soft amber */
+  --color-danger: #FF1744; /* accessible red for danger */
+  --color-modal-shadow: 0 8px 32px rgba(100,100,100,0.45);
+  --color-modal-border: #333;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+body[data-theme='light'] {
+  --color-modal-shadow: 0 8px 32px rgba(60,60,120,0.13);
+  --color-modal-border: #e0e0e0;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+/* Remove default margin/padding from html and body to prevent unwanted spacing above header */
+html, body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Inter', 'Poppins', 'Montserrat', 'Roboto', 'Nunito', sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.1px;
+}

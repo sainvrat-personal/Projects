@@ -1,0 +1,42 @@
+.landing-root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  justify-content: center;
+  background: var(--color-background);
+  padding: 0 1rem;
+}
+
+.landing-card {
+  background: var(--color-surface);
+  border-radius: 24px;
+  box-shadow: 0 8px 32px rgba(60,60,120,0.08);
+  padding: 3rem 2.5rem;
+  max-width: 420px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+}
+
+.landing-title {
+  font-weight: 800;
+  font-size: 2.5rem;
+  color: var(--color-primary);
+  margin: 0;
+}
+
+.landing-desc {
+  color: var(--color-secondary);
+  font-size: 1.2rem;
+  text-align: center;
+  margin: 0;
+}
+
+.landing-footer {
+  margin-top: 40px;
+  color: var(--color-border);
+  font-size: 14px;
+}

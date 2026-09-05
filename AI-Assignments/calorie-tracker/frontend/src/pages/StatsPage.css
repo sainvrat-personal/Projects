@@ -1,0 +1,285 @@
+.logout-btn {
+  min-width: 120px;
+  box-shadow: 0 2px 8px rgba(60,60,120,0.07);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 0.7em 2em;
+}
+/* Ensure main content is not hidden behind header and uses theme background */
+.stats-container {
+  margin: 0 auto;
+  padding-top: 80px; /* adjust if your header is taller */
+  min-height: calc(100vh - 80px);
+  background: var(--color-background);
+  box-sizing: border-box;
+}
+
+.stats-title {
+  font-weight: 700;
+  font-size: 2rem;
+  color: var(--color-primary);
+  margin-bottom: 32px;
+}
+
+.stats-flex-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stats-flex-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.stats-flex-row-inner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.add-meal-btn {
+  background: var(--color-primary);
+  color: var(--color-contrast);
+  border: none;
+  border-radius: 8px;
+  padding: 0.7em 2em;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 120px;
+  box-shadow: 0 2px 8px rgba(60,60,120,0.07);
+  transition: background 0.2s;
+}
+
+.timeframe-btn-group {
+  display: flex;
+  gap: 8px;
+  background: var(--color-background);
+  border-radius: 8px;
+  padding: 0.3em 0.7em;
+}
+
+.timeframe-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 0.3em 1em;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 15px;
+  transition: background 0.2s;
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.timeframe-btn.active {
+  background: var(--color-primary);
+  color: var(--color-contrast);
+}
+
+  margin-left: 16px;
+  background: var(--color-warning);
+  color: var(--color-contrast);
+  border: none;
+  border-radius: 8px;
+  padding: 0.7em 2em;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 120px;
+  transition: background 0.2s;
+}
+
+/* Use theme background for chart container, support dark mode */
+.stats-chart-container {
+  background: var(--color-surface, #fff);
+  border-radius: 20px;
+  box-shadow: 0 4px 24px rgba(16,185,129,0.07);
+  padding: 32px;
+  height: 350px;
+  width: 100%; /* Ensure full width */
+  min-width: 0; /* Prevent overflow in flex layouts */
+  box-sizing: border-box;
+}
+
+.stats-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.18);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stats-modal {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(60,60,120,0.13);
+  padding: 36px;
+  min-width: 340px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  position: relative;
+}
+
+.stats-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.stats-modal-title {
+  margin: 0;
+  font-weight: 700;
+  color: #0ea5e9;
+}
+
+.stats-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.stats-input {
+  padding: 0.7em 1em;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  font-size: 16px;
+}
+
+.stats-submit-btn {
+  background: #0ea5e9;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7em 2em;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 120px;
+  transition: background 0.2s;
+}
+
+.stats-table-container {
+  background: var(--color-surface);
+  border-radius: 20px;
+  box-shadow: 0 4px 24px rgba(60,60,120,0.07);
+  padding: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.stats-table-header {
+  display: flex;
+  font-weight: 700;
+  font-size: 18px;
+  color: #0ea5e9;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px 0;
+}
+
+.stats-table-actions {
+  flex: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.stats-table-row {
+  display: flex;
+  border-bottom: 1px solid #e2e8f0;
+  align-items: center;
+  font-size: 16px;
+  min-height: 40px;
+}
+
+.stats-table-date {
+  flex: 2;
+  padding-left: 12px;
+}
+
+.stats-table-desc {
+  flex: 3;
+}
+
+.stats-table-cal {
+  flex: 1;
+}
+
+.stats-edit-btn {
+  background: none;
+  color: #0ea5e9;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3em;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stats-delete-btn {
+  background: none;
+  color: #e11d48;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3em;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stats-edit-modal-btn {
+  background: #10b981;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7em 2em;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 120px;
+  transition: background 0.2s;
+}
+
+.upload-file-label {
+  display: inline-block;
+  padding: 0.6em 1.2em;
+  border-radius: 8px;
+  background: var(--color-secondary);
+  color: var(--color-contrast);
+  font-weight: 600;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  border: none;
+  margin-bottom: 0.5em;
+}
+.upload-file-label:hover, .upload-file-label:focus {
+  background: var(--color-primary);
+  color: var(--color-contrast);
+}
+.upload-file-input {
+  display: none;
+}

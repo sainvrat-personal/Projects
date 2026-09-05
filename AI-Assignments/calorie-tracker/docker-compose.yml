@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "9001:80"
+    depends_on:
+      - backend
+
+  mock-service:
+    build:
+      context: ./mock-service
+    ports:
+      - "9002:9002"
+    restart: unless-stopped
+    

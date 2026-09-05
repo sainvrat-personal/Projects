@@ -1,0 +1,39 @@
+.btn,
+.logout-btn {
+  padding: 0.5rem 1.2rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-contrast);
+}
+
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+}
+
+.btn-danger,
+.logout-btn {
+  background: var(--color-danger);
+  color: var(--color-contrast);
+}
+
+.btn:disabled,
+.logout-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.logout-btn:focus,
+.logout-btn:hover {
+  background: #7f1010;
+  color: var(--color-contrast);
+}
