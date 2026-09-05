@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Run platform-lib tests with coverage
+        run: mvn -B -pl platform-lib test
+        env:
+          SWIFTEATS_DATASET_PATH: ${{ github.workspace }}/third-assignment-sample-data-set
+
+      - name: Upload JaCoCo report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-report
+          path: services/platform-lib/target/site/jacoco/
+          retention-days: 14
+
+      - name: Print coverage summary
+        if: always()
+        working-directory: services/platform-lib
+        run: |
+          if [ -f target/site/jacoco/jacoco.csv ]; then
+            echo "## Coverage summary (platform-lib)" >> "$GITHUB_STEP_SUMMARY"
+            awk -F, 'NR>1 {missed+=$4; covered+=$5} END {
+              total=missed+covered;
+              if (total>0) printf "Line coverage: %.1f%% (%d/%d lines)\n", (covered/total)*100, covered, total
+            }' target/site/jacoco/jacoco.csv >> "$GITHUB_STEP_SUMMARY"
+          fi

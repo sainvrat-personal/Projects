@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: entities-service
+  config:
+    import: optional:classpath:application-platform-defaults.yml
+  flyway:
+    enabled: false
+
+server:
+  port: 8081
+
+swifteats:
+  service:
+    name: ENTITIES
+  services:
+    order:
+      base-url: ${ORDER_SERVICE_URL:http://order-service:8082}
+    payment:
+      base-url: ${PAYMENT_SERVICE_URL:http://payment-service:8083}

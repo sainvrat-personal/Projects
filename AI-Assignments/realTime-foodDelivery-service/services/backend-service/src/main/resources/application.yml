@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: backend-service
+  config:
+    import: optional:classpath:application-platform-defaults.yml
+  flyway:
+    enabled: false
+
+server:
+  port: 8080
+
+swifteats:
+  service:
+    name: BACKEND
+  gateway:
+    enabled: true
+  services:
+    entities:
+      base-url: ${ENTITIES_SERVICE_URL:http://entities-service:8081}
+    order:
+      base-url: ${ORDER_SERVICE_URL:http://order-service:8082}
+    payment:
+      base-url: ${PAYMENT_SERVICE_URL:http://payment-service:8083}
+    refund:
+      base-url: ${REFUND_SERVICE_URL:http://refund-service:8084}
+    analytics:
+      base-url: ${ANALYTICS_SERVICE_URL:http://analytics-service:8085}
+    backend:
+      base-url: ${BACKEND_SERVICE_URL:http://backend-service:8080}
+
+springdoc:
+  swagger-ui:
+    urls:
+      - name: Backend (auth, tracking, restaurants)
+        url: /v3/api-docs/backend
+      - name: Entities (admin CRUD)
+        url: /v3/api-docs/entities
+      - name: Order (lifecycle)
+        url: /v3/api-docs/order
+      - name: Payment
+        url: /v3/api-docs/payment
+      - name: Refund
+        url: /v3/api-docs/refund
+      - name: Analytics
+        url: /v3/api-docs/analytics

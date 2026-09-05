@@ -1,0 +1,768 @@
+{
+  "info": {
+    "_postman_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "name": "SwiftEats API",
+    "description": "SwiftEats food delivery platform — API verification, E2E happy path, and SLO/latency checks.\n\n**Setup**\n1. Start stack: `docker compose up --build` (copy `.env.example` → `.env`)\n2. Import `SwiftEats-Local.postman_environment.json` and select **SwiftEats — Local (Docker)**\n3. Run folder **01 — E2E Happy Path** with Collection Runner (1 iteration, no delay)\n\n**SLO thresholds** (environment variables):\n- `menuSloMs` = 200 (Assignment 1 menu P99 target; single-request smoke)\n- `orderCreateSloMs` = 500\n- `trackingSloMs` = 300\n\n**Metrics:** Each request logs `[METRIC] name: Xms` to the Postman console. Use Collection Runner summary for aggregate timing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const rt = pm.response.responseTime;",
+          "const name = pm.info.requestName || 'request';",
+          "console.log(`[METRIC] ${name}: ${rt}ms status=${pm.response.code}`);",
+          "pm.collectionVariables.set('lastResponseTimeMs', String(rt));",
+          "",
+          "pm.test('Response received', function () {",
+          "    pm.response.to.not.be.error;",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "lastResponseTimeMs", "value": "" },
+    { "key": "menuLatencySamples", "value": "[]" }
+  ],
+  "item": [
+    {
+      "name": "01 — E2E Happy Path",
+      "description": "Run this folder top-to-bottom in Collection Runner after docker-compose is healthy. Re-run **04 — Get order (poll payment)** if status is still PENDING_PAYMENT.",
+      "item": [
+        {
+          "name": "01 — Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Health is UP', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql('UP');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 — List restaurants (Pune)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/restaurants?city=Pune&page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "restaurants"],
+              "query": [
+                { "key": "city", "value": "Pune" },
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns restaurant page', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().content).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 — Get menu (SLO smoke)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/restaurants/{{restaurantId}}/menu"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const slo = parseInt(pm.environment.get('menuSloMs') || '200', 10);",
+                  "pm.test('Menu returns 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(`Menu latency < ${slo}ms (A1 smoke)`, function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(slo);",
+                  "});",
+                  "let samples = [];",
+                  "try { samples = JSON.parse(pm.collectionVariables.get('menuLatencySamples') || '[]'); } catch (e) {}",
+                  "samples.push(pm.response.responseTime);",
+                  "pm.collectionVariables.set('menuLatencySamples', JSON.stringify(samples));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 — Create order",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.environment.set('idempotencyKey', 'postman-e2e-' + Date.now());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const slo = parseInt(pm.environment.get('orderCreateSloMs') || '500', 10);",
+                  "pm.test('Order accepted 202', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "pm.test(`Create order latency < ${slo}ms`, function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(slo);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('orderId returned', function () {",
+                  "    pm.expect(body.orderId).to.be.a('string');",
+                  "});",
+                  "pm.environment.set('orderId', body.orderId);",
+                  "console.log('[E2E] orderId=' + body.orderId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}" },
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddress\": \"123 MG Road, Pune\",\n  \"city\": \"Pune\",\n  \"state\": \"Maharashtra\",\n  \"pincode\": \"411001\",\n  \"paymentMode\": \"UPI\",\n  \"items\": [\n    {\n      \"menuItemId\": \"{{menuItemId}}\",\n      \"quantity\": 2\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/orders"
+          }
+        },
+        {
+          "name": "05 — Get order (poll payment)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Order readable', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const status = pm.response.json().status;",
+                  "console.log('[E2E] order status=' + status);",
+                  "if (status === 'CONFIRMED' || status === 'PREPARING' || status === 'OUT_FOR_DELIVERY' || status === 'DELIVERED') {",
+                  "    pm.test('Payment progressed beyond PENDING_PAYMENT', function () {",
+                  "        pm.expect(status).to.not.eql('PENDING_PAYMENT');",
+                  "    });",
+                  "} else {",
+                  "    console.warn('Payment still processing — wait 2s and re-run this request');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 — Admin: PREPARING",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Api-Key", "value": "{{adminApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PREPARING\",\n  \"changedBy\": \"postman-kitchen\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/admin/orders/{{orderId}}/state"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Transition to PREPARING', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql('PREPARING');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 — Admin: OUT_FOR_DELIVERY",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Api-Key", "value": "{{adminApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"OUT_FOR_DELIVERY\",\n  \"changedBy\": \"postman-kitchen\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/admin/orders/{{orderId}}/state"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Transition to OUT_FOR_DELIVERY + driver assigned', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql('OUT_FOR_DELIVERY');",
+                  "    pm.expect(body.driverId).to.be.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 — Post driver GPS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Driver-Api-Key", "value": "{{driverApiToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 18.5204,\n  \"longitude\": 73.8567,\n  \"heading\": 135,\n  \"orderId\": \"{{orderId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/drivers/{{driverId}}/location"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('GPS accepted 202', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 — Get tracking snapshot (SLO smoke)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/tracking"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const slo = parseInt(pm.environment.get('trackingSloMs') || '300', 10);",
+                  "pm.test('Tracking snapshot 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().latitude).to.be.a('number');",
+                  "});",
+                  "pm.test(`Tracking latency < ${slo}ms`, function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(slo);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 — Get order history",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/history"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('History is non-empty array', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json()).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 — Metrics / Menu burst",
+      "description": "Run this folder with Collection Runner (10–20 iterations) to approximate menu read latency distribution. Check console for `[METRIC]` lines; export runner results for p95/p99 offline.",
+      "item": [
+        {
+          "name": "Menu burst (single iteration)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/restaurants/{{restaurantId}}/menu"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const slo = parseInt(pm.environment.get('menuSloMs') || '200', 10);",
+                  "pm.test('Menu 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test(`Latency < ${slo}ms`, function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(slo);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 — Restaurants (public)",
+      "item": [
+        {
+          "name": "List restaurants",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/restaurants?city=Pune",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "restaurants"],
+              "query": [{ "key": "city", "value": "Pune" }]
+            }
+          }
+        },
+        {
+          "name": "Get restaurant menu",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/restaurants/{{restaurantId}}/menu"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 — Orders (customer auth)",
+      "item": [
+        {
+          "name": "Create order",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.environment.set('idempotencyKey', 'postman-' + Date.now());"],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 202) {",
+                  "    pm.environment.set('orderId', pm.response.json().orderId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}" },
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddress\": \"123 MG Road, Pune\",\n  \"city\": \"Pune\",\n  \"paymentMode\": \"UPI\",\n  \"items\": [{ \"menuItemId\": \"{{menuItemId}}\", \"quantity\": 1 }]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/orders"
+          }
+        },
+        {
+          "name": "Get order",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}"
+          }
+        },
+        {
+          "name": "Get order history",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/history"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 — Tracking",
+      "item": [
+        {
+          "name": "Tracking snapshot",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/tracking"
+          }
+        },
+        {
+          "name": "Tracking SSE stream",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Customer-Id", "value": "{{customerId}}" },
+              { "key": "X-Customer-Api-Key", "value": "{{customerApiToken}}" },
+              { "key": "Accept", "value": "text/event-stream" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/tracking/stream"
+          }
+        },
+        {
+          "name": "Post driver location",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Driver-Api-Key", "value": "{{driverApiToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 18.5210,\n  \"longitude\": 73.8570,\n  \"heading\": 90,\n  \"orderId\": \"{{orderId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/drivers/{{driverId}}/location"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 — Admin",
+      "item": [
+        {
+          "name": "Transition order state",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Api-Key", "value": "{{adminApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PREPARING\",\n  \"changedBy\": \"postman-admin\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/admin/orders/{{orderId}}/state"
+          }
+        },
+        {
+          "name": "Onboard restaurant",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Api-Key", "value": "{{adminApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Test Kitchen\",\n  \"address\": \"99 Test Lane, Pune\",\n  \"city\": \"Pune\",\n  \"cuisines\": [\"Maharashtrian\"],\n  \"contactEmail\": \"test@example.com\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/admin/restaurants"
+          }
+        },
+        {
+          "name": "Approve restaurant",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-Admin-Api-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/restaurants/{{restaurantId}}/approve"
+          }
+        },
+        {
+          "name": "Add menu item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Api-Key", "value": "{{adminApiKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Special\",\n  \"category\": \"Snacks\",\n  \"price\": 99.00,\n  \"available\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/admin/restaurants/{{restaurantId}}/menu-items"
+          }
+        },
+        {
+          "name": "Import analytics CSV",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Admin-Api-Key", "value": "{{adminApiKey}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/analytics/import"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06b — Analytics insights (A2)",
+      "description": "Run after Import analytics CSV. Covers Assignment 2 sample use cases UC1–UC6.",
+      "item": [
+        {
+          "name": "UC1 — Delays by city",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/delays?city=Pune&date=2025-03-17",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "delays"],
+              "query": [
+                { "key": "city", "value": "Pune" },
+                { "key": "date", "value": "2025-03-17" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "UC2 — Client failures",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/failures?clientId=337&from=2025-04-01T00:00:00Z&to=2025-05-01T00:00:00Z",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "failures"],
+              "query": [
+                { "key": "clientId", "value": "337" },
+                { "key": "from", "value": "2025-04-01T00:00:00Z" },
+                { "key": "to", "value": "2025-05-01T00:00:00Z" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "UC3 — Warehouse failures",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/failures/by-warehouse?warehouseId=2&monthParam=2025-08",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "failures", "by-warehouse"],
+              "query": [
+                { "key": "warehouseId", "value": "2" },
+                { "key": "monthParam", "value": "2025-08" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "UC4 — Compare cities",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/failures/compare?cityA=Pune&cityB=Mumbai&monthParam=2025-08",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "failures", "compare"],
+              "query": [
+                { "key": "cityA", "value": "Pune" },
+                { "key": "cityB", "value": "Mumbai" },
+                { "key": "monthParam", "value": "2025-08" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "UC5 — Festival analysis (insight query)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"queryType\": \"FESTIVAL_ANALYSIS\",\n  \"parameters\": {\n    \"from\": \"2025-08-01\",\n    \"to\": \"2025-09-01\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/analytics/insights/query"
+          }
+        },
+        {
+          "name": "UC6 — Capacity projection",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/capacity-projection?clientId=337&additionalMonthlyOrders=20000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", "capacity-projection"],
+              "query": [
+                { "key": "clientId", "value": "337" },
+                { "key": "additionalMonthlyOrders", "value": "20000" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 — Payments (mock)",
+      "item": [
+        {
+          "name": "Mock payment process",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"amount\": 240.00\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/payments/mock/process"
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 — Security checks",
+      "description": "Negative tests — expect 401/403.",
+      "item": [
+        {
+          "name": "Get order without auth (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unauthorized without customer headers', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GPS without driver token (expect 401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 18.52,\n  \"longitude\": 73.85\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/drivers/{{driverId}}/location"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unauthorized without driver token', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin without API key (expect 401)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/analytics/import"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unauthorized without admin key', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

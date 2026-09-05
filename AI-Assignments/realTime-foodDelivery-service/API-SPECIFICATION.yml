@@ -1,0 +1,1625 @@
+openapi: 3.0.3
+info:
+  title: SwiftEats API
+  version: 1.0.0
+  description: |
+    API specification for **SwiftEats** — a real-time food delivery platform.
+
+    ## Architecture
+
+    Six Spring Boot microservices share domain code in `platform-lib`. **All external clients**
+    (UIs, Postman, curl) call **backend-service** at `http://localhost:8080`. The gateway
+    proxies domain routes to internal services.
+
+    | Service | Port | Routes |
+    |---------|------|--------|
+    | backend-service | 8080 | `/auth/*`, public `/restaurants/*`, `/drivers/*`, order tracking |
+    | entities-service | 8081 | `/admin/restaurants/*` |
+    | order-service | 8082 | `/orders/*`, `/admin/orders/*` |
+    | payment-service | 8083 | `/payments/*` |
+    | refund-service | 8084 | `/refunds/*` |
+    | analytics-service | 8085 | `/analytics/*`, `/admin/analytics/*` |
+
+    **Unified Swagger UI:** http://localhost:8080/swagger-ui.html (dropdown for each service spec).
+
+    ## Modules
+
+    - **Auth** — customer register, login, profile (backend-service)
+    - **Restaurant** — browse, search, menu cache (backend); admin CRUD (entities-service)
+    - **Order** — idempotent creation, async payment, state machine (order-service)
+    - **Payment** — RabbitMQ worker, mock gateway (payment-service)
+    - **Refund** — initiation → successful mock refund (refund-service)
+    - **Tracking** — Kafka GPS ingest, Redis hot path, SSE (backend-service)
+    - **Analytics** — Assignment 2 CSV import + insight APIs (analytics-service)
+
+    **Order state flow:**
+    `PENDING_PAYMENT` → `CONFIRMED` → `PREPARING` → `OUT_FOR_DELIVERY` → `DELIVERED`
+    Branches: `PAYMENT_FAILED`, `DELAYED`, `FAILED`, `CANCELLED`, `RETURNED` (after refund)
+
+    **Refund state flow:** `INITIATED` → `PROCESSING` → `SUCCESSFUL` | `FAILED`
+
+    **Admin authentication:** All `/api/v1/admin/*` routes require header `X-Admin-Api-Key`.
+
+    **Customer authentication:** Register or login at `/api/v1/auth/*` to receive `customerId` + `apiToken`.
+    Send headers `X-Customer-Id` and `X-Customer-Api-Key` on order, refund, and tracking routes.
+
+    **Driver authentication:** GPS ingest requires header `X-Driver-Api-Key` matching the driver in the path.
+
+    **Temporary data naming:** Seed data and user-created records (restaurants, menu items, cuisines,
+    customers, drivers) are stored with a **`[T] `** name prefix via `TemporaryDataLabels` in
+    `platform-lib`. API responses show prefixed names (e.g. `[T] Misal House`). Create/register
+    requests accept plain names; the server adds the prefix before persistence.
+
+  contact:
+    name: SwiftEats Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local docker-compose
+
+tags:
+  - name: Auth
+    description: Customer registration, login, and profile
+  - name: Restaurants
+    description: Public restaurant browse and menu
+  - name: Admin Restaurants
+    description: Restaurant onboarding and menu management
+  - name: Orders
+    description: Order placement and status
+  - name: Admin Orders
+    description: Kitchen / ops state transitions
+  - name: Tracking
+    description: Live driver location (REST + SSE)
+  - name: Drivers
+    description: GPS location ingest
+  - name: Payments
+    description: Mock payment gateway (payment-service)
+  - name: Refunds
+    description: Refund initiation and status (refund-service)
+  - name: Analytics
+    description: Assignment 2 sample data import and insight APIs (analytics-service)
+  - name: Internal
+    description: Service-to-service APIs (not proxied by gateway; documented per-service in Swagger dropdown)
+
+paths:
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new customer account
+      operationId: registerCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterCustomerRequest'
+      responses:
+        '201':
+          description: Account created; returns profile and API token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerAuthResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email or phone + password
+      operationId: loginCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginCustomerRequest'
+      responses:
+        '200':
+          description: Authenticated; returns profile and rotated API token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerAuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current customer profile
+      operationId: getCustomerProfile
+      security:
+        - CustomerIdAuth: []
+        - CustomerApiKeyAuth: []
+      responses:
+        '200':
+          description: Customer profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/profile:
+    patch:
+      tags: [Auth]
+      summary: Update current customer profile
+      operationId: updateCustomerProfile
+      security:
+        - CustomerIdAuth: []
+        - CustomerApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCustomerProfileRequest'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/restaurants:
+    get:
+      tags: [Restaurants]
+      summary: Search and list restaurants
+      operationId: listRestaurants
+      parameters:
+        - name: city
+          in: query
+          schema: { type: string }
+        - name: cuisine
+          in: query
+          schema: { type: string }
+        - name: isOpen
+          in: query
+          schema: { type: boolean }
+        - name: minRating
+          in: query
+          schema: { type: number, format: double }
+        - name: name
+          in: query
+          description: Partial name search
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated restaurant list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestaurantPageResponse'
+
+  /api/v1/restaurants/{id}/menu:
+    get:
+      tags: [Restaurants]
+      summary: Get restaurant menu and status (P99 critical path)
+      operationId: getRestaurantMenu
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '200':
+          description: Menu bundle with restaurant status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestaurantMenuResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/restaurants:
+    get:
+      tags: [Admin Restaurants]
+      summary: List restaurants for admin
+      description: Served by **entities-service** (proxied via backend gateway).
+      operationId: listAdminRestaurants
+      security:
+        - AdminApiKey: []
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [PENDING, ACTIVE, SUSPENDED] }
+          description: Optional filter by restaurant status
+      responses:
+        '200':
+          description: Restaurant summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminRestaurantSummaryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Admin Restaurants]
+      summary: Onboard a new restaurant
+      operationId: createRestaurant
+      security:
+        - AdminApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRestaurantRequest'
+      responses:
+        '201':
+          description: Restaurant created (status PENDING)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestaurantDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/admin/restaurants/{id}:
+    get:
+      tags: [Admin Restaurants]
+      summary: Get restaurant detail (admin)
+      operationId: getAdminRestaurant
+      security:
+        - AdminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '200':
+          description: Restaurant with menu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestaurantDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Admin Restaurants]
+      summary: Update restaurant profile or status
+      operationId: updateRestaurant
+      security:
+        - AdminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRestaurantRequest'
+      responses:
+        '200':
+          description: Updated restaurant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestaurantDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin Restaurants]
+      summary: Soft-delete restaurant (status → SUSPENDED)
+      operationId: deleteRestaurant
+      security:
+        - AdminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '204':
+          description: Restaurant suspended
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/restaurants/{id}/approve:
+    patch:
+      tags: [Admin Restaurants]
+      summary: Approve restaurant (ACTIVE + open)
+      operationId: approveRestaurant
+      security:
+        - AdminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '200':
+          description: Approved restaurant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestaurantDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/restaurants/{id}/menu-items:
+    post:
+      tags: [Admin Restaurants]
+      summary: Add menu item
+      operationId: addMenuItem
+      security:
+        - AdminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMenuItemRequest'
+      responses:
+        '201':
+          description: Menu item created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuItemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/restaurants/{id}/menu-items/{itemId}:
+    patch:
+      tags: [Admin Restaurants]
+      summary: Update menu item
+      operationId: updateMenuItem
+      security:
+        - AdminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+        - $ref: '#/components/parameters/MenuItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMenuItemRequest'
+      responses:
+        '200':
+          description: Updated menu item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuItemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin Restaurants]
+      summary: Delete menu item
+      operationId: deleteMenuItem
+      security:
+        - AdminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+        - $ref: '#/components/parameters/MenuItemId'
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/orders:
+    post:
+      tags: [Orders]
+      summary: Create order (async payment)
+      description: |
+        Accepts order and returns **202** immediately. Payment is processed asynchronously
+        via outbox + RabbitMQ. Use the same `Idempotency-Key` to safely retry.
+      operationId: createOrder
+      security:
+        - CustomerIdAuth: []
+          CustomerApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '202':
+          description: Order accepted; payment processing asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderAcceptedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    get:
+      tags: [Orders]
+      summary: List current customer's orders
+      operationId: listCustomerOrders
+      security:
+        - CustomerIdAuth: []
+        - CustomerApiKeyAuth: []
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [active, history, all]
+            default: all
+          description: |
+            `active` — in-progress orders; `history` — delivered/cancelled/failed; `all` — both.
+      responses:
+        '200':
+          description: Orders newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderSummaryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/orders/{orderId}:
+    get:
+      tags: [Orders]
+      summary: Get order details
+      operationId: getOrder
+      security:
+        - CustomerIdAuth: []
+          CustomerApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Order with line items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/orders/{orderId}/history:
+    get:
+      tags: [Orders]
+      summary: Get order state transition history
+      operationId: getOrderHistory
+      security:
+        - CustomerIdAuth: []
+          CustomerApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: State history entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderStateHistoryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/orders/{orderId}/state:
+    patch:
+      tags: [Admin Orders]
+      summary: Transition order state
+      operationId: transitionOrderState
+      security:
+        - AdminApiKey: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionOrderRequest'
+      responses:
+        '200':
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/orders/{orderId}/tracking:
+    get:
+      tags: [Tracking]
+      summary: Get latest driver location snapshot
+      description: Reads hot-path location from Redis. Requires driver assigned to order.
+      operationId: getTrackingSnapshot
+      security:
+        - CustomerIdAuth: []
+          CustomerApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Latest GPS snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverLocationSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/orders/{orderId}/tracking/stream:
+    get:
+      tags: [Tracking]
+      summary: SSE live driver location stream
+      description: |
+        Server-Sent Events stream. Events:
+        - `location-update` — JSON DriverLocationSnapshot
+        - `ping` — heartbeat every 15 seconds
+      operationId: streamTracking
+      security:
+        - CustomerIdAuth: []
+          CustomerApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: text/event-stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: location-update
+                  data: {"driverId":"...","latitude":18.52,"longitude":73.85,"timestamp":"2026-08-21T18:05:00Z"}
+
+                  event: ping
+                  data: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/drivers/{driverId}/location:
+    post:
+      tags: [Drivers]
+      summary: Ingest driver GPS location
+      description: Publishes to Kafka topic `gps.locations`. Returns 202 without DB write on request thread.
+      operationId: ingestDriverLocation
+      security:
+        - DriverAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DriverId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationUpdateRequest'
+      responses:
+        '202':
+          description: Location accepted for async processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          description: GPS rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/payments/mock/process:
+    post:
+      tags: [Payments]
+      summary: Mock payment gateway (standalone test)
+      operationId: mockPaymentProcess
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '200':
+          description: Payment result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResult'
+
+  /api/v1/admin/analytics/import:
+    post:
+      tags: [Analytics]
+      summary: Import Assignment 2 sample CSV dataset
+      operationId: importAnalyticsDataset
+      security:
+        - AdminApiKey: []
+      responses:
+        '200':
+          description: Import completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Import already in progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/analytics/delays:
+    get:
+      tags: [Analytics]
+      summary: Delay root-cause breakdown for a city and date (UC1)
+      operationId: analyzeDelaysByCity
+      parameters:
+        - name: city
+          in: query
+          required: true
+          schema: { type: string, example: Pune }
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date, example: '2025-03-17' }
+      responses:
+        '200':
+          description: Delay analysis with narrative and recommendations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DelayAnalysisResponse'
+        '412':
+          description: Sample data not imported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/analytics/failures:
+    get:
+      tags: [Analytics]
+      summary: Client failure analysis for a date range (UC2)
+      operationId: analyzeFailuresByClient
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: integer, format: int64, example: 337 }
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Failure breakdown with correlated fleet and warehouse signals
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailureAnalysisResponse'
+
+  /api/v1/analytics/failures/by-warehouse:
+    get:
+      tags: [Analytics]
+      summary: Warehouse-linked failure analysis (UC3)
+      operationId: analyzeFailuresByWarehouse
+      parameters:
+        - name: warehouseId
+          in: query
+          required: true
+          schema: { type: integer, format: int64, example: 2 }
+        - name: monthParam
+          in: query
+          description: Year-month as yyyy-MM (alternative to year + month)
+          schema: { type: string, example: '2025-08' }
+        - name: year
+          in: query
+          schema: { type: integer }
+        - name: month
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12 }
+      responses:
+        '200':
+          description: Warehouse failure analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseFailureResponse'
+
+  /api/v1/analytics/failures/compare:
+    get:
+      tags: [Analytics]
+      summary: Compare failure causes between two cities (UC4)
+      operationId: compareCityFailures
+      parameters:
+        - name: cityA
+          in: query
+          required: true
+          schema: { type: string, example: Pune }
+        - name: cityB
+          in: query
+          required: true
+          schema: { type: string, example: Mumbai }
+        - name: monthParam
+          in: query
+          schema: { type: string, example: '2025-08' }
+        - name: year
+          in: query
+          schema: { type: integer }
+        - name: month
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          description: City comparison
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CityComparisonResponse'
+
+  /api/v1/analytics/capacity-projection:
+    get:
+      tags: [Analytics]
+      summary: Project warehouse capacity risk for onboarding (UC6)
+      operationId: projectCapacityRisk
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: additionalMonthlyOrders
+          in: query
+          required: true
+          schema: { type: integer, example: 20000 }
+      responses:
+        '200':
+          description: Capacity risk report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapacityRiskResponse'
+
+  /api/v1/analytics/insights/query:
+    post:
+      tags: [Analytics]
+      summary: Structured insight query across all use cases (UC1–UC6)
+      operationId: executeInsightQuery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsightQueryRequest'
+      responses:
+        '200':
+          description: Narrative insight with evidence and recommendations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsightResponse'
+
+  /api/v1/refunds:
+    post:
+      tags: [Refunds]
+      summary: Initiate refund (async)
+      description: |
+        Returns **202** immediately. Refund is processed asynchronously by refund-service.
+        On success the order transitions to `RETURNED`.
+      operationId: initiateRefund
+      security:
+        - CustomerIdAuth: []
+        - CustomerApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitiateRefundRequest'
+      responses:
+        '202':
+          description: Refund accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundAcceptedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Refunds]
+      summary: List current customer's refunds
+      operationId: listRefunds
+      security:
+        - CustomerIdAuth: []
+        - CustomerApiKeyAuth: []
+      responses:
+        '200':
+          description: Refunds newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/refunds/{refundId}:
+    get:
+      tags: [Refunds]
+      summary: Get refund status
+      operationId: getRefund
+      security:
+        - CustomerIdAuth: []
+        - CustomerApiKeyAuth: []
+      parameters:
+        - name: refundId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Refund detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /internal/v1/orders/{orderId}/transition:
+    post:
+      tags: [Internal]
+      summary: Transition order state (internal)
+      description: Called by payment-service and refund-service. Host **order-service** (:8082).
+      operationId: internalOrderTransition
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderTransitionRequest'
+      responses:
+        '200':
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+
+  /internal/v1/payments/process:
+    post:
+      tags: [Internal]
+      summary: Process payment synchronously (internal)
+      description: Fallback when RabbitMQ disabled. Host **payment-service** (:8083).
+      operationId: internalProcessPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentProcessMessage'
+      responses:
+        '200':
+          description: Payment processed
+
+  /internal/v1/refunds/{refundId}/process:
+    post:
+      tags: [Internal]
+      summary: Force refund processing (internal)
+      description: Host **refund-service** (:8084).
+      operationId: internalProcessRefund
+      parameters:
+        - name: refundId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Refund after processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+
+components:
+  securitySchemes:
+    AdminApiKey:
+      type: apiKey
+      in: header
+      name: X-Admin-Api-Key
+    CustomerIdAuth:
+      type: apiKey
+      in: header
+      name: X-Customer-Id
+      description: Customer UUID; required together with X-Customer-Api-Key on protected routes
+    CustomerApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Customer-Api-Key
+      description: Per-customer API token from the customer record; required together with X-Customer-Id
+    DriverAuth:
+      type: apiKey
+      in: header
+      name: X-Driver-Api-Key
+      description: Must match the driver UUID in the request path
+
+  parameters:
+    RestaurantId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MenuItemId:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DriverId:
+      name: driverId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string }
+      description: Client-generated unique key for safe retries
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated but not authorized for this resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnprocessableEntity:
+      description: Business rule violation (e.g. invalid state transition)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Resource already exists (e.g. duplicate email)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message, timestamp, path]
+      properties:
+        code: { type: string, example: NOT_FOUND }
+        message: { type: string }
+        timestamp: { type: string, format: date-time }
+        path: { type: string }
+
+    RegisterCustomerRequest:
+      type: object
+      required: [name, email, phone, password, addressLine1, city]
+      properties:
+        name:
+          type: string
+          description: Stored with `[T] ` prefix (e.g. `[T] Jane Doe`)
+          example: Jane Doe
+        addressLine1: { type: string }
+        addressLine2: { type: string }
+        city: { type: string }
+        state: { type: string, example: Maharashtra }
+        pincode: { type: string }
+
+    LoginCustomerRequest:
+      type: object
+      required: [loginId, password]
+      properties:
+        loginId:
+          type: string
+          description: Email address or 10-digit phone number
+        password: { type: string, minLength: 8 }
+
+    UpdateCustomerProfileRequest:
+      type: object
+      required: [name, email, phone, addressLine1, city]
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string, pattern: '^[0-9]{10}$' }
+        addressLine1: { type: string }
+        addressLine2: { type: string }
+        city: { type: string }
+        state: { type: string }
+        pincode: { type: string }
+
+    CustomerProfileResponse:
+      type: object
+      properties:
+        customerId: { type: string, format: uuid }
+        name:
+          type: string
+          example: "[T] Demo Customer"
+        email: { type: string, format: email }
+        phone: { type: string }
+        addressLine1: { type: string }
+        addressLine2: { type: string }
+        city: { type: string }
+        state: { type: string }
+        pincode: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CustomerAuthResponse:
+      type: object
+      properties:
+        profile:
+          $ref: '#/components/schemas/CustomerProfileResponse'
+        customerId: { type: string, format: uuid }
+        apiToken: { type: string }
+
+    RestaurantSummaryResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name:
+          type: string
+          example: "[T] Misal House"
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestaurantSummaryResponse'
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+
+    MenuItemResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name:
+          type: string
+          example: "[T] Kolhapuri Misal"
+      type: object
+      properties:
+        restaurantId: { type: string, format: uuid }
+        name:
+          type: string
+          example: "[T] Misal House"
+        estimatedWaitMins: { type: integer }
+        menuItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuItemResponse'
+        cachedAt: { type: string, format: date-time }
+
+    CreateRestaurantRequest:
+      type: object
+      required: [name, address, city, cuisines]
+      properties:
+        name:
+          type: string
+          description: Stored with `[T] ` prefix (e.g. admin sends `Pune Biryani Co`, persisted as `[T] Pune Biryani Co`)
+          example: Pune Biryani Co
+        address: { type: string }
+        city: { type: string }
+        cuisines:
+          type: array
+          items: { type: string }
+        contactEmail: { type: string, format: email }
+        openingTime: { type: string, example: "10:00" }
+        closingTime: { type: string, example: "23:00" }
+
+    RestaurantDetailResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name:
+          type: string
+          example: "[T] Pune Biryani Co"
+        cuisines:
+          type: array
+          items: { type: string }
+        contactEmail: { type: string }
+        openingTime: { type: string }
+        closingTime: { type: string }
+        estimatedWaitMins: { type: integer }
+        createdAt: { type: string, format: date-time }
+
+    AdminRestaurantSummaryResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        city: { type: string }
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, SUSPENDED]
+        isOpen: { type: boolean }
+
+    UpdateRestaurantRequest:
+      type: object
+      properties:
+        name: { type: string }
+        address: { type: string }
+        city: { type: string }
+        cuisines:
+          type: array
+          items: { type: string }
+        contactEmail: { type: string, format: email }
+        openingTime: { type: string, example: "10:00" }
+        closingTime: { type: string, example: "23:00" }
+        isOpen: { type: boolean }
+        estimatedWaitMins: { type: integer }
+
+    CreateMenuItemRequest:
+      type: object
+      required: [name, category, price]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        category: { type: string }
+        price: { type: number, format: double, minimum: 0.01 }
+        available: { type: boolean, default: true }
+
+    UpdateMenuItemRequest:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        category: { type: string }
+        price: { type: number, format: double, minimum: 0.01 }
+        available: { type: boolean }
+
+    CreateOrderRequest:
+      type: object
+      required: [restaurantId, deliveryAddress, items]
+      properties:
+        restaurantId: { type: string, format: uuid }
+        deliveryAddress: { type: string }
+        city: { type: string }
+        state: { type: string }
+        pincode: { type: string }
+        paymentMode: { type: string, example: UPI }
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [menuItemId, quantity]
+            properties:
+              menuItemId: { type: string, format: uuid }
+              quantity: { type: integer, minimum: 1 }
+
+    OrderSummaryResponse:
+      type: object
+      properties:
+        orderId: { type: string, format: uuid }
+        restaurantId: { type: string, format: uuid }
+        restaurantName: { type: string }
+        status: { type: string }
+        paymentStatus: { type: string }
+        totalAmount: { type: number, format: double }
+        deliveryAddressLine1: { type: string }
+        city: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    OrderAcceptedResponse:
+      type: object
+      properties:
+        orderId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [PENDING_PAYMENT]
+        paymentStatus:
+          type: string
+          enum: [PENDING]
+        totalAmount: { type: number, format: double }
+        message: { type: string }
+
+    OrderItemResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        menuItemId: { type: string, format: uuid }
+        name:
+          type: string
+          example: "[T] Kolhapuri Misal"
+        unitPrice: { type: number }
+        lineTotal: { type: number }
+
+    OrderResponse:
+      type: object
+      properties:
+        orderId: { type: string, format: uuid }
+        customerId: { type: string, format: uuid }
+        restaurantId: { type: string, format: uuid }
+        driverId: { type: string, format: uuid, nullable: true }
+        status:
+          type: string
+          enum:
+            - PENDING_PAYMENT
+            - CONFIRMED
+            - PREPARING
+            - OUT_FOR_DELIVERY
+            - DELIVERED
+            - PAYMENT_FAILED
+            - DELAYED
+            - FAILED
+            - CANCELLED
+            - RETURNED
+        paymentStatus:
+          type: string
+          enum: [PENDING, SUCCESS, FAILED]
+        totalAmount: { type: number }
+        deliveryAddressLine1: { type: string }
+        city: { type: string }
+        failureReason: { type: string, nullable: true }
+        delayReason: { type: string, nullable: true }
+        promisedDeliveryAt: { type: string, format: date-time, nullable: true }
+        prepStartedAt: { type: string, format: date-time, nullable: true }
+        outForDeliveryAt: { type: string, format: date-time, nullable: true }
+        deliveredAt: { type: string, format: date-time, nullable: true }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemResponse'
+        createdAt: { type: string, format: date-time }
+
+    OrderStateHistoryResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fromStatus: { type: string, nullable: true }
+        toStatus: { type: string }
+        changedBy: { type: string }
+        reason: { type: string, nullable: true }
+        changedAt: { type: string, format: date-time }
+
+    TransitionOrderRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum:
+            - CONFIRMED
+            - PREPARING
+            - OUT_FOR_DELIVERY
+            - DELIVERED
+            - DELAYED
+            - FAILED
+            - CANCELLED
+            - PAYMENT_FAILED
+        reason: { type: string }
+        changedBy: { type: string, example: kitchen }
+
+    LocationUpdateRequest:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        heading: { type: number, format: double }
+        timestamp: { type: string, format: date-time }
+        orderId: { type: string, format: uuid }
+
+    LocationAcceptedResponse:
+      type: object
+      properties:
+        accepted: { type: boolean }
+
+    DriverLocationSnapshot:
+      type: object
+      properties:
+        driverId: { type: string, format: uuid }
+        orderId: { type: string, format: uuid, nullable: true }
+        latitude: { type: number }
+        longitude: { type: number }
+        heading: { type: number, nullable: true }
+        timestamp: { type: string, format: date-time }
+
+    PaymentRequest:
+      type: object
+      required: [orderId, amount]
+      properties:
+        orderId: { type: string, format: uuid }
+        amount: { type: number, minimum: 0.01 }
+
+    PaymentResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        transactionId: { type: string, nullable: true }
+        message: { type: string }
+
+    PaymentProcessMessage:
+      type: object
+      required: [orderId, amount]
+      properties:
+        orderId: { type: string, format: uuid }
+        amount: { type: number, format: double }
+        customerId: { type: string, format: uuid }
+
+    OrderTransitionRequest:
+      type: object
+      required: [status, changedBy]
+      properties:
+        status:
+          type: string
+          enum:
+            - PENDING_PAYMENT
+            - CONFIRMED
+            - PREPARING
+            - OUT_FOR_DELIVERY
+            - DELIVERED
+            - PAYMENT_FAILED
+            - DELAYED
+            - FAILED
+            - CANCELLED
+            - RETURNED
+        changedBy: { type: string, example: PAYMENT_WORKER }
+        reason: { type: string, nullable: true }
+
+    InitiateRefundRequest:
+      type: object
+      required: [orderId]
+      properties:
+        orderId: { type: string, format: uuid }
+        reason: { type: string, maxLength: 500 }
+
+    RefundAcceptedResponse:
+      type: object
+      properties:
+        refundId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [INITIATED, PROCESSING, SUCCESSFUL, FAILED]
+
+    RefundResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        orderId: { type: string, format: uuid }
+        customerId: { type: string, format: uuid }
+        amount: { type: number, format: double }
+        status:
+          type: string
+          enum: [INITIATED, PROCESSING, SUCCESSFUL, FAILED]
+        reason: { type: string, nullable: true }
+        failureReason: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+
+    ImportResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        datasetPath: { type: string }
+        message: { type: string }
+        durationMs: { type: integer, format: int64 }
+        rowCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+
+    InsightQueryRequest:
+      type: object
+      required: [queryType, parameters]
+      properties:
+        queryType:
+          type: string
+          enum:
+            - DELAY_BY_CITY
+            - FAILURES_BY_CLIENT
+            - FAILURES_BY_WAREHOUSE
+            - COMPARE_CITIES
+            - FESTIVAL_ANALYSIS
+            - CAPACITY_PROJECTION
+        parameters:
+          type: object
+          additionalProperties: { type: string }
+
+    InsightResponse:
+      type: object
+      properties:
+        narrative: { type: string }
+        recommendations:
+          type: array
+          items: { type: string }
+        evidence:
+          type: object
+          additionalProperties: true
+
+    DelayAnalysisResponse:
+      type: object
+      properties:
+        city: { type: string }
+        date: { type: string, format: date }
+        totalAffected: { type: integer }
+        failureReasonCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        heavyTrafficCount: { type: integer, format: int64 }
+        slowPackingCount: { type: integer, format: int64 }
+        negativeFeedbackCount: { type: integer, format: int64 }
+        narrative: { type: string }
+        recommendations:
+          type: array
+          items: { type: string }
+
+    FailureAnalysisResponse:
+      type: object
+      properties:
+        clientId: { type: integer, format: int64 }
+        from: { type: string }
+        to: { type: string }
+        totalFailed: { type: integer }
+        breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              failureReason: { type: string }
+              count: { type: integer, format: int64 }
+              fleetIssues: { type: string, nullable: true }
+              warehouseIssues: { type: string, nullable: true }
+        narrative: { type: string }
+        recommendations:
+          type: array
+          items: { type: string }
+
+    WarehouseFailureResponse:
+      type: object
+      properties:
+        warehouseId: { type: integer, format: int64 }
+        warehouseName: { type: string }
+        month: { type: integer }
+        year: { type: integer }
+        totalFailed: { type: integer }
+        failureReasonCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        warehouseNoteCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        narrative: { type: string }
+        recommendations:
+          type: array
+          items: { type: string }
+
+    CityComparisonResponse:
+      type: object
+      properties:
+        cityA: { type: string }
+        cityB: { type: string }
+        month: { type: string }
+        cityAFailures:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        cityBFailures:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        narrative: { type: string }
+        recommendations:
+          type: array
+          items: { type: string }
+
+    CapacityRiskResponse:
+      type: object
+      properties:
+        clientId: { type: integer, format: int64 }
+        clientName: { type: string }
+        additionalMonthlyOrders: { type: integer }
+        historicalFailureRate: { type: number, format: double }
+        warehouseRisks:
+          type: array
+          items:
+            type: object
+            properties:
+              warehouseId: { type: integer, format: int64 }
+              warehouseName: { type: string }
+              city: { type: string }
+              capacity: { type: integer }
+              currentMonthlyOrders: { type: integer, format: int64 }
+              projectedMonthlyOrders: { type: integer, format: int64 }
+              projectedUtilizationPct: { type: number, format: double }
+              highRisk: { type: boolean }
+        narrative: { type: string }
+        recommendations:
+          type: array
+          items: { type: string }

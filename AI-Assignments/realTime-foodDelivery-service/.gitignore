@@ -1,0 +1,15 @@
+.env
+.DS_Store
+*.docx
+
+# Java / Maven build output
+**/target/
+
+# Frontend SPAs
+ui-service/node_modules/
+ui-service/dist/
+admin-dashboard/node_modules/
+admin-dashboard/dist/
+analytics-dashboard/node_modules/
+analytics-dashboard/dist/
+cursor-chat-history-files/

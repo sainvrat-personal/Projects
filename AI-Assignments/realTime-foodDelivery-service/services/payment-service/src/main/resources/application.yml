@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: payment-service
+  config:
+    import: optional:classpath:application-platform-defaults.yml
+  flyway:
+    enabled: false
+
+server:
+  port: 8083
+
+swifteats:
+  service:
+    name: PAYMENT
+  services:
+    order:
+      base-url: ${ORDER_SERVICE_URL:http://order-service:8082}
+    payment:
+      base-url: ${PAYMENT_SERVICE_URL:http://payment-service:8083}
