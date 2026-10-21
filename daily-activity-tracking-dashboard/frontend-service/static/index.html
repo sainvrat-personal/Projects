@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Activity Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">PERSONAL OVERVIEW</p>
+        <h1>Activity dashboard</h1>
+        <p class="subtitle">See where your days go, by activity type.</p>
+      </div>
+      <div class="local-badge"><span></span> Private · this device</div>
+    </header>
+
+    <section class="filters panel" aria-label="Date filters">
+      <label>From <input id="from-date" type="date"></label>
+      <label>To <input id="to-date" type="date"></label>
+      <button id="apply-filter" type="button">Apply dates</button>
+      <button id="clear-filter" class="secondary" type="button">Show all</button>
+      <button id="refresh" class="icon-button" type="button" aria-label="Refresh dashboard">↻ Refresh</button>
+    </section>
+
+    <div id="message" class="message" role="status" hidden></div>
+
+    <section class="metrics" aria-label="Activity totals">
+      <article class="metric panel">
+        <span class="metric-label">Activities</span>
+        <strong id="task-count">—</strong>
+        <span class="metric-caption">logged tasks</span>
+      </article>
+      <article class="metric panel">
+        <span class="metric-label">Active days</span>
+        <strong id="active-days">—</strong>
+        <span class="metric-caption">days with activities</span>
+      </article>
+      <article class="metric panel">
+        <span class="metric-label">Time recorded</span>
+        <strong id="known-time">—</strong>
+        <span class="metric-caption">only from explicit duration tags</span>
+      </article>
+      <article class="metric panel">
+        <span class="metric-label">Files scanned</span>
+        <strong id="file-count">—</strong>
+        <span class="metric-caption">unique files scanned</span>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel section-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">DISTRIBUTION</p><h2>By activity type</h2></div>
+          <span class="muted">Task count</span>
+        </div>
+        <div id="categories" class="category-list"></div>
+      </article>
+
+      <article class="panel section-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">RHYTHM</p><h2>Day by day</h2></div>
+          <span class="muted">Tasks logged</span>
+        </div>
+        <div id="daily" class="daily-list"></div>
+      </article>
+    </section>
+
+    <section class="panel section-panel activity-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">DETAIL</p><h2>Activities</h2></div>
+        <span id="range-label" class="muted"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Type</th><th>Activity</th><th>Time</th></tr></thead>
+          <tbody id="activity-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="warnings-panel" class="panel warnings-panel" hidden>
+      <h2>Items to review</h2>
+      <ul id="warnings"></ul>
+    </section>
+
+    <footer>
+      Category labels are inferred from activity text; explicit <code>[category: ...]</code> tags override them.
+      Durations are counted only when entered as <code>[duration: 45m]</code> or <code>[duration: 1h 15m]</code>.
+      The weekly rollover is managed by the local Java service.
+    </footer>
+  </main>
+</body>
+</html>

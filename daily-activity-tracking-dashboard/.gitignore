@@ -1,0 +1,5 @@
+backend-service/target/
+backend-service/.env
+.env
+__pycache__/
+*.py[cod]

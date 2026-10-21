@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: ./backend-service
+    restart: unless-stopped
+    environment:
+      TRACKER_SOURCE_DIRECTORY: /data/tracker
+      TRACKER_ARCHIVE_DIRECTORY: /data/archive
+      TRACKER_ROLLOVER_CRON: ${TRACKER_ROLLOVER_CRON:-0 5 0 * * *}
+      TZ: Asia/Kolkata
+      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Kolkata
+    volumes:
+      - type: bind
+        source: ${TRACKER_SOURCE_HOST_PATH:-..}
+        target: /data/tracker
+      - type: bind
+        source: ${TRACKER_ARCHIVE_HOST_PATH:?Set TRACKER_ARCHIVE_HOST_PATH in the .env file}
+        target: /data/archive
+  frontend:
+    build:
+      context: ./frontend-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-8080}:80"
