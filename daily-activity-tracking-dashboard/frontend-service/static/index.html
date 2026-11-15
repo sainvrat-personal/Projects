@@ -88,9 +88,68 @@
       <ul id="warnings"></ul>
     </section>
 
+    <section id="financial-analysis" class="panel section-panel financial-panel" aria-labelledby="financial-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">MONTHLY OVERVIEW</p>
+          <h2 id="financial-heading">Financial analysis</h2>
+        </div>
+        <label class="month-picker">
+          Month
+          <select id="finance-month" aria-label="Select financial month"></select>
+        </label>
+      </div>
+      <div id="finance-message" class="message" role="status" hidden></div>
+      <div class="finance-metrics">
+        <article class="metric panel">
+          <span class="metric-label">Income recognized</span>
+          <strong id="finance-income">—</strong>
+          <span class="metric-caption">only explicit income rows</span>
+        </article>
+        <article class="metric panel">
+          <span class="metric-label">Expenditure recognized</span>
+          <strong id="finance-expenses">—</strong>
+          <span id="finance-expense-caption" class="metric-caption">calculation basis shown after analysis</span>
+        </article>
+        <article class="metric panel">
+          <span class="metric-label">Documents</span>
+          <strong id="finance-document-count">—</strong>
+          <span id="finance-document-caption" class="metric-caption">month documents scanned</span>
+        </article>
+      </div>
+      <div class="content-grid finance-grid">
+        <article class="panel section-panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">SPENDING</p><h2>By category</h2></div>
+            <span class="muted">Recognized detail rows</span>
+          </div>
+          <div id="finance-categories" class="category-list"></div>
+        </article>
+        <article class="panel section-panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">SOURCE FILES</p><h2>Document status</h2></div>
+          </div>
+          <div id="finance-documents" class="document-list"></div>
+        </article>
+      </div>
+      <article class="panel section-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">DETAIL</p><h2>Recognized transactions</h2></div>
+          <span class="muted">Verify extracted values against the original PDFs</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Description</th><th>Amount</th><th>Source</th></tr></thead>
+            <tbody id="finance-rows"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
     <footer>
       Category labels are inferred from activity text; explicit <code>[category: ...]</code> tags override them.
       Durations are counted only when entered as <code>[duration: 45m]</code> or <code>[duration: 1h 15m]</code>.
+      Financial PDFs are processed locally. OCR and transaction categorization are heuristic; verify recognized amounts against source documents.
       The weekly rollover is managed by the local Java service.
     </footer>
   </main>

@@ -173,6 +173,11 @@ public class WeeklyActivityRolloverService {
 
                 Path archivedFile = archiveDirectory.resolve(file.getFileName());
                 if (Files.exists(archivedFile)) {
+                    if (Files.mismatch(file, archivedFile) == -1) {
+                        Files.delete(file);
+                        log("INFO", "Removed duplicate weekly activity sheet already archived: " + file);
+                        continue;
+                    }
                     log("WARN", "Archive conflict; left both copies untouched. Active-folder copy: "
                             + file + "; archived copy: " + archivedFile);
                     continue;

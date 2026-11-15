@@ -35,7 +35,7 @@ Python is not required.
 INSTALL AUTOMATIC STARTUP
 From the tracker root, run:
  powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\optional-powershell\Install-WeeklyActivityTracker.ps1"
-This creates the current user's Documents\Activity-log folder and registers a
+This creates Tracker-Docs\Activity-log and registers a
 per-user task to start the Docker backend at sign-in with a daily recovery start.
 The Java service inside the container performs weekly-sheet creation and rollover.
 

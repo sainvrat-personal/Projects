@@ -37,7 +37,25 @@ class WeeklyActivityRolloverServiceTest {
     }
 
     @Test
-    void preservesCurrentSheetAndBothFilesOnArchiveConflict() throws Exception {
+    void removesAnIdenticalSheetWhenItIsAlreadyArchived() throws Exception {
+        Path tracker = Files.createDirectory(tempDirectory.resolve("tracker"));
+        Path archive = Files.createDirectory(tempDirectory.resolve("archive"));
+        Path previousWeek = tracker.resolve("Week-05.10.2026-11.10.2026-Activity.md");
+        Path archivedWeek = archive.resolve(previousWeek.getFileName());
+        Files.writeString(previousWeek, "Recorded activity");
+        Files.writeString(archivedWeek, "Recorded activity");
+        WeeklyActivityRolloverService rollover = new WeeklyActivityRolloverService(
+                tracker.toString(), archive.toString()
+        );
+
+        rollover.rollover(LocalDate.parse("2026-10-15"));
+
+        assertFalse(Files.exists(previousWeek));
+        assertEquals("Recorded activity", Files.readString(archivedWeek));
+    }
+
+    @Test
+    void preservesCurrentSheetAndBothFilesWhenArchiveContentsDiffer() throws Exception {
         Path tracker = Files.createDirectory(tempDirectory.resolve("tracker"));
         Path archive = Files.createDirectory(tempDirectory.resolve("archive"));
         Path previousWeek = tracker.resolve("Week-05.10.2026-11.10.2026-Activity.md");

@@ -16,6 +16,18 @@ services:
       - type: bind
         source: ${TRACKER_ARCHIVE_HOST_PATH:?Set TRACKER_ARCHIVE_HOST_PATH in the .env file}
         target: /data/archive
+  financial-analysis:
+    build:
+      context: ./financial-analysis-service
+    restart: unless-stopped
+    environment:
+      FINANCIAL_DOCUMENTS_DIRECTORY: /data/financial
+      TZ: Asia/Kolkata
+    volumes:
+      - type: bind
+        source: ${FINANCIAL_DOCUMENTS_HOST_PATH:?Set FINANCIAL_DOCUMENTS_HOST_PATH in the .env file}
+        target: /data/financial
+        read_only: true
   frontend:
     build:
       context: ./frontend-service
@@ -23,5 +35,6 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+      - financial-analysis
     ports:
       - "127.0.0.1:${DASHBOARD_PORT:-8080}:80"

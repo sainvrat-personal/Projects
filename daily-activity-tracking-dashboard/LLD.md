@@ -15,6 +15,10 @@ activity-dashboard/
 │   ├── Dockerfile
 │   ├── nginx.conf
 │   └── static/{index.html,app.js,styles.css}
+├── financial-analysis-service/
+│   ├── Dockerfile
+│   ├── pom.xml
+│   └── src/main/java/local/activitytracker/finance/
 └── backend-service/
     ├── Dockerfile
     ├── pom.xml
@@ -36,7 +40,7 @@ activity-dashboard/
 
 ## 2. HTTP API
 
-The browser connects to the Nginx frontend through the host loopback port. Nginx serves UI files and proxies backend API/documentation requests over the private Compose network to backend port `8080`.
+The browser connects to the Nginx frontend through the host loopback port. Nginx serves UI files, proxies activity API/documentation requests to backend port `8080`, and routes `/api/finance` to the financial-analysis backend on port `8081`.
 
 ### OpenAPI and Swagger UI
 
@@ -52,6 +56,7 @@ Both features are explicitly enabled in backend `application.properties`. Nginx 
 `frontend-service/nginx.conf` serves static files from `/usr/share/nginx/html` and forwards these paths without rewriting the URI:
 
 - `/api/` to `http://backend:8080`.
+- `/api/finance` to `http://financial-analysis:8081`.
 - `/swagger-ui.html` and `/swagger-ui/` to the backend's Swagger UI endpoints and assets.
 - `/v3/api-docs` and nested paths such as `/v3/api-docs/swagger-config` to the backend's generated OpenAPI endpoints.
 
@@ -60,8 +65,11 @@ All other paths are resolved from the frontend static root. The UI continues to 
 | Method and path | Parameters | Success result | Error behavior |
 |---|---|---|---|
 | `GET /api/health` | None | `{"status":"ok"}` | Standard Spring error response if the application cannot serve the request. |
+| `GET /api/finance/health` | None | `{"status":"ok"}` | Standard Spring error response if the financial-analysis service cannot serve the request. |
 | `GET /api/dashboard` | Optional `from` and `to`, each `yyyy-MM-dd` | `DashboardResponse` JSON | Invalid date syntax is rejected by Spring MVC. `from > to` returns HTTP 400. Missing/unreadable tracker paths fail rather than being treated as empty data. |
 | `POST /api/rollover` | None | `{"status":"ok","message":"Weekly activity sheet is up to date."}` | I/O failure maps to HTTP 500 with a rollover failure message. |
+| `GET /api/finance/months` | None | Descending `yyyy-MM` month options discovered from included PDFs. | HTTP 500 if the configured document directory cannot be read. |
+| `GET /api/finance?month=yyyy-MM` | Required month | Recognized financial totals, category summaries, transactions, and document extraction statuses. | Invalid month returns HTTP 400; file/directory read errors return HTTP 500. Unrecognized values remain unavailable with warnings. |
 
 The dashboard response shape is:
 
@@ -171,10 +179,10 @@ The service operation is synchronized to prevent overlapping rollover runs withi
 5. Enumerate regular files in the tracker directory in filename order.
 6. For each matching weekly filename, strictly parse both dates and verify Monday-to-Sunday validity.
 7. Ignore invalid or non-prior weeks. For an earlier valid week, move it to the archive unless an identical target filename already exists.
-8. On archive conflict, leave both source and destination untouched and log a warning.
+8. If the archive already contains an identical sheet, remove the redundant source copy. If the contents differ, leave both files untouched and log a warning.
 9. Append each rollover event to `activity-tracker.log` in the archive directory and emit it to the Java logger.
 
-Rollover does not overwrite the current sheet, does not remove files when an archive conflict occurs, and does not process nonconforming weekly filenames.
+Rollover does not overwrite the current sheet, does not remove either copy when same-name archive contents differ, and does not process nonconforming weekly filenames.
 
 ## 5. Browser behavior
 
@@ -190,8 +198,10 @@ Rollover does not overwrite the current sheet, does not remove files when an arc
 | Setting | Default / Compose value | Description |
 |---|---|---|
 | `DASHBOARD_PORT` | `8080` | Host loopback port mapped to frontend container port `80`. |
-| `TRACKER_SOURCE_HOST_PATH` | `..` in `.env.example` | Host path bind-mounted to `/data/tracker`. |
+| `TRACKER_SOURCE_HOST_PATH` | `Tracker-Docs` in `.env.example` | Host path bind-mounted to `/data/tracker`. |
 | `TRACKER_ARCHIVE_HOST_PATH` | Required by Compose | Host path bind-mounted to `/data/archive`. |
+| `FINANCIAL_DOCUMENTS_HOST_PATH` | Required by Compose | Monthly expenditure root, mounted read-only to `/data/financial`. |
+| `FINANCIAL_DOCUMENTS_HOST_PATH` | Required by Compose | Monthly expenditure root, mounted read-only to `/data/financial`. |
 | `TRACKER_SOURCE_DIRECTORY` | `/data/tracker` in Compose | Application path for active sheets. |
 | `TRACKER_ARCHIVE_DIRECTORY` | `/data/archive` in Compose | Application path for archive scans, rollover moves, and log. |
 | `TRACKER_LEGACY_ARCHIVE_DIRECTORY` | Empty | Optional additional read-only scanner directory. |
@@ -201,10 +211,14 @@ Rollover does not overwrite the current sheet, does not remove files when an arc
 
 Application defaults are also declared in `application.properties`; Compose overrides source/archive paths and supplies the rollover schedule.
 
+The default Windows data root is `%USERPROFILE%\OneDrive\Documents\Tracker-Docs`. Active weekly Markdown files are in the root, older sheets and rollover logs are in `Activity-log`, and financial PDFs are in `Monthly-Expenditure/<year>/<month>/`. PDF filenames containing `Pani camper` or `Dudh Hisab` are excluded from analysis.
+
 ## 7. Build and tests
 
 - `backend-service/Dockerfile` runs `mvn --batch-mode package` in a Maven 3.9.9 / Java 17 builder stage and copies the resulting executable JAR into a Java 17 JRE runtime image.
 - `WeeklyActivityScannerTest` covers scanner and parsing behavior.
 - `WeeklyActivityRolloverServiceTest` covers weekly sheet creation, preservation, and archiving behavior.
-- Docker Compose starts separate `frontend` and `backend` services. Only the frontend port is published to `127.0.0.1`; tracker/archive host directories are mounted into the backend only.
+- `financial-analysis-service` tests month discovery, exclusion rules, PDF extraction, and recognized totals.
+- Docker Compose starts `frontend`, `backend`, and `financial-analysis` services. Only the frontend port is published to `127.0.0.1`; PDF data is mounted read-only into the financial backend.
 - The frontend image is built from `frontend-service/Dockerfile` using the dashboard static files and Nginx configuration. The backend image is built from `backend-service/Dockerfile`.
+- The financial-analysis image is built from `financial-analysis-service/Dockerfile`; it uses PDFBox for text extraction and Tesseract for local OCR.

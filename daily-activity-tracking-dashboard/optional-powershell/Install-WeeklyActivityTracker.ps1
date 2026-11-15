@@ -1,10 +1,41 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$TrackerDirectory
+)
 
 $ErrorActionPreference = 'Stop'
 
-$trackerDirectory = Split-Path -Parent $PSScriptRoot
-$dashboardDirectory = Join-Path $trackerDirectory 'activity-dashboard'
+$projectDirectory = Split-Path -Parent $PSScriptRoot
+if (Test-Path -LiteralPath (Join-Path $projectDirectory 'compose.yaml') -PathType Leaf) {
+    $dashboardDirectory = $projectDirectory
+}
+elseif (Test-Path -LiteralPath (Join-Path $projectDirectory 'activity-dashboard\compose.yaml') -PathType Leaf) {
+    $dashboardDirectory = Join-Path $projectDirectory 'activity-dashboard'
+}
+else {
+    throw "Docker Compose configuration was not found in $projectDirectory or its activity-dashboard subfolder."
+}
+
+if ([string]::IsNullOrWhiteSpace($TrackerDirectory)) {
+    $documentsFolder = [Environment]::GetFolderPath('MyDocuments')
+    $defaultTrackerDirectory = Join-Path $documentsFolder 'Tracker-Docs'
+    if (Test-Path -LiteralPath $defaultTrackerDirectory -PathType Container) {
+        $TrackerDirectory = $defaultTrackerDirectory
+    }
+    elseif ($dashboardDirectory -ne $projectDirectory) {
+        $TrackerDirectory = $projectDirectory
+    }
+    elseif (@(Get-ChildItem -LiteralPath (Split-Path -Parent $projectDirectory) -Filter 'Week-*-Activity.md' -File -ErrorAction SilentlyContinue).Count -gt 0) {
+        $TrackerDirectory = Split-Path -Parent $projectDirectory
+    }
+    elseif (@(Get-ChildItem -LiteralPath $projectDirectory -Filter 'Week-*-Activity.md' -File -ErrorAction SilentlyContinue).Count -gt 0) {
+        $TrackerDirectory = $projectDirectory
+    }
+    else {
+        throw 'Could not locate the tracker folder. Supply it with -TrackerDirectory.'
+    }
+}
+$trackerDirectory = [System.IO.Path]::GetFullPath($TrackerDirectory)
 $launcher = Join-Path $PSScriptRoot 'Start-ActivityDashboard.ps1'
 $composeFile = Join-Path $dashboardDirectory 'compose.yaml'
 
@@ -24,7 +55,7 @@ $documentsFolder = [Environment]::GetFolderPath('MyDocuments')
 if ([string]::IsNullOrWhiteSpace($documentsFolder)) {
     throw "The current user's Documents folder could not be resolved."
 }
-New-Item -ItemType Directory -Path (Join-Path $documentsFolder 'Activity-log') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $trackerDirectory 'Activity-log') -Force | Out-Null
 
 $taskName = "Activity Tracker Dashboard ($env:USERNAME)"
 $oldTaskName = "Activity Tracker - Archive and Reset ($env:USERNAME)"
@@ -32,7 +63,7 @@ $legacyTaskName = 'Weekly Activity Tracker - Archive and Reset'
 $powerShell = Join-Path $PSHOME 'powershell.exe'
 $taskAction = New-ScheduledTaskAction `
     -Execute $powerShell `
-    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$launcher`" -NoBrowser -NoBuild" `
+    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$launcher`" -TrackerDirectory `"$trackerDirectory`" -NoBrowser -NoBuild" `
     -WorkingDirectory $dashboardDirectory
 $taskTriggers = @(
     (New-ScheduledTaskTrigger -Daily -At 12:05AM),
@@ -76,7 +107,7 @@ Register-ScheduledTask `
 Write-Output "Registered Docker service task: $taskName"
 Write-Output 'Docker Desktop must be set to start when you sign in for unattended container startup.'
 Write-Output 'Starting and health-checking the container now...'
-& $powerShell -NoProfile -ExecutionPolicy Bypass -File $launcher -NoBrowser
+& $powerShell -NoProfile -ExecutionPolicy Bypass -File $launcher -TrackerDirectory $trackerDirectory -NoBrowser
 if ($LASTEXITCODE -ne 0) {
     throw "Could not start the Dockerized activity dashboard. Launcher exit code: $LASTEXITCODE"
 }

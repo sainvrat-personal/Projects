@@ -1,4 +1,5 @@
 backend-service/target/
+financial-analysis-service/target/
 backend-service/.env
 .env
 __pycache__/
